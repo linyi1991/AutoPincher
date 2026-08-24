@@ -80,10 +80,14 @@ public sealed class ConfigWindow : Window, IDisposable
                 "當最低競爭價明顯低於最近成交價時不跟價，避免 3000 gil 的市場被 100 gil 釣魚單打到 99。\n" +
                 "沒有最近成交價時，會用你目前上架價當參考。");
 
-        int lowPercent = cfg.PinchSuspiciousLowPercent;
-        if (ImGui.SliderInt("低價判定比例 (%)##lowpercent", ref lowPercent, 10, 90))
+        int lowPercent = Math.Clamp(cfg.PinchSuspiciousLowPercent, 1, 99);
+        bool changedLowPercent = ImGui.SliderInt("低價判定比例 (%)##lowpercent", ref lowPercent, 1, 99);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(80);
+        changedLowPercent |= ImGui.InputInt("##lowpercentinput", ref lowPercent, 1, 5);
+        if (changedLowPercent)
         {
-            cfg.PinchSuspiciousLowPercent = lowPercent;
+            cfg.PinchSuspiciousLowPercent = Math.Clamp(lowPercent, 1, 99);
             cfg.Save();
         }
         if (ImGui.IsItemHovered())
