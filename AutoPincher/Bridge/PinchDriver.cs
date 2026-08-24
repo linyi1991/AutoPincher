@@ -148,7 +148,13 @@ public sealed class PinchDriver : IDisposable
         => GenericHelpers.TryGetAddonByName<AtkUnitBase>("RetainerSellList", out var addon)
            && GenericHelpers.IsAddonReady(addon);
 
-    public unsafe bool CanRunAllNow() => IsRetainerListReady();
+    public bool CanRunAllNow()
+    {
+        unsafe
+        {
+            return IsRetainerListReady();
+        }
+    }
 
     /// <summary>Pinch only the currently-open retainer (the /autopinch command).</summary>
     public async Task RunAsync(CancellationToken ct)

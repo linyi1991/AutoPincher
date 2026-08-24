@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/13.0.0">
   <PropertyGroup>
-    <Version>0.1.9-api13-tw</Version>
+    <Version>0.1.10-api13-tw</Version>
     <AssemblyName>AutoPincher</AssemblyName>
     <RootNamespace>AutoPincher</RootNamespace>
     <PackageProjectUrl>https://github.com/XivHub/AutoPincher</PackageProjectUrl>

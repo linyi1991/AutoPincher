@@ -129,12 +129,21 @@ public sealed class ConfigWindow : Window, IDisposable
         else
         {
             bool canPinch = cfg.EnablePinch && _driver.CanPinchNow();
+            bool canPinchAll = cfg.EnablePinch && _driver.CanRunAllNow();
             if (!canPinch) ImGui.BeginDisabled();
             if (ImGui.Button("立即處理目前僱員"))
                 _ = Task.Run(() => _driver.RunAsync(CancellationToken.None));
             if (!canPinch) ImGui.EndDisabled();
             if (!_driver.CanPinchNow() && ImGui.IsItemHovered())
                 ImGui.SetTooltip("請先開啟僱員的販售清單。");
+
+            ImGui.SameLine();
+            if (!canPinchAll) ImGui.BeginDisabled();
+            if (ImGui.Button("處理全部僱員##pinchall"))
+                _ = Task.Run(() => _driver.RunAllAsync(CancellationToken.None));
+            if (!canPinchAll) ImGui.EndDisabled();
+            if (!_driver.CanRunAllNow() && ImGui.IsItemHovered())
+                ImGui.SetTooltip("請先打開遊戲內的僱員鈴，停在僱員清單。");
         }
 
         string last = _driver.LastResultText;
