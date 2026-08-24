@@ -143,6 +143,50 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.Spacing();
             ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), $"上次執行：{last}");
         }
+
+        var records = _driver.RecentReprices;
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        ImGui.TextUnformatted($"最近改價紀錄（{records.Length}）");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("清除##clear-reprice-records"))
+            _driver.ClearRecentReprices();
+
+        if (records.Length == 0)
+        {
+            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "尚無改價紀錄。");
+            return;
+        }
+
+        if (ImGui.BeginTable("##recent-reprice-table", 5,
+            ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
+            new Vector2(0, 180)))
+        {
+            ImGui.TableSetupColumn("時間", ImGuiTableColumnFlags.WidthFixed, 56);
+            ImGui.TableSetupColumn("商品");
+            ImGui.TableSetupColumn("舊價", ImGuiTableColumnFlags.WidthFixed, 64);
+            ImGui.TableSetupColumn("新價", ImGuiTableColumnFlags.WidthFixed, 64);
+            ImGui.TableSetupColumn("原因", ImGuiTableColumnFlags.WidthFixed, 82);
+            ImGui.TableHeadersRow();
+
+            foreach (var r in records)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(r.Time.ToString("HH:mm:ss"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(r.Hq ? $"{r.ItemName} HQ" : r.ItemName);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(r.OldPrice.ToString("N0"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(r.NewPrice.ToString("N0"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(r.Reason);
+            }
+
+            ImGui.EndTable();
+        }
     }
 
     public void Dispose() { }

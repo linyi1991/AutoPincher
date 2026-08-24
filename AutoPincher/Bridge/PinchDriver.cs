@@ -32,10 +32,14 @@ namespace AutoPincher.Bridge;
 /// </summary>
 public sealed class PinchDriver : IDisposable
 {
+    public readonly record struct RepriceRecord(DateTime Time, string ItemName, bool Hq, uint OldPrice, uint NewPrice, string Reason);
+
     private readonly IPluginLog _log;
     private readonly IChatGui _chat;
     private readonly MarketBoardListener _mb;
     private readonly TaskManager _tasks;
+    private readonly object _recentRepricesLock = new();
+    private readonly List<RepriceRecord> _recentReprices = [];
     private string _lastResultText = "";
 
     private CancellationTokenSource? _cts;
@@ -83,6 +87,24 @@ public sealed class PinchDriver : IDisposable
 
     public bool IsBusy => _tasks.IsBusy;
     public string LastResultText => Volatile.Read(ref _lastResultText);
+    public RepriceRecord[] RecentReprices
+    {
+        get
+        {
+            lock (_recentRepricesLock)
+            {
+                return _recentReprices.ToArray();
+            }
+        }
+    }
+
+    public void ClearRecentReprices()
+    {
+        lock (_recentRepricesLock)
+        {
+            _recentReprices.Clear();
+        }
+    }
 
     // AR-mirror throttle (Utils.cs:1425-1432 in AutoRetainer). Every UI helper
     // checks `GenericThrottle` before firing its action and calls
@@ -762,8 +784,19 @@ public sealed class PinchDriver : IDisposable
                 name, hq, curPrice, target, result.Competitor);
         }
         SetAskingPrice(addon, target);
+        RecordReprice(name, hq, curPrice, target, dropCapped ? "限制差額" : "跟最低價");
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
+    }
+
+    private void RecordReprice(string itemName, bool hq, uint oldPrice, uint newPrice, string reason)
+    {
+        lock (_recentRepricesLock)
+        {
+            _recentReprices.Insert(0, new RepriceRecord(DateTime.Now, itemName, hq, oldPrice, newPrice, reason));
+            if (_recentReprices.Count > 100)
+                _recentReprices.RemoveRange(100, _recentReprices.Count - 100);
+        }
     }
 
     private static uint ApplyMaxDropCap(uint curPrice, uint target, out bool capped)
@@ -834,6 +867,7 @@ public sealed class PinchDriver : IDisposable
                 name, hq, curPrice, target);
         }
         SetAskingPrice(addon, target);
+        RecordReprice(name, hq, curPrice, target, dropCapped ? "限制差額/成交價" : "最近成交價");
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
     }
