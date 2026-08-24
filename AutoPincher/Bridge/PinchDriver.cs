@@ -148,6 +148,8 @@ public sealed class PinchDriver : IDisposable
         => GenericHelpers.TryGetAddonByName<AtkUnitBase>("RetainerSellList", out var addon)
            && GenericHelpers.IsAddonReady(addon);
 
+    public unsafe bool CanRunAllNow() => IsRetainerListReady();
+
     /// <summary>Pinch only the currently-open retainer (the /autopinch command).</summary>
     public async Task RunAsync(CancellationToken ct)
     {
@@ -204,17 +206,20 @@ public sealed class PinchDriver : IDisposable
         if (!Plugin.Configuration.EnablePinch)
         {
             _log.Warning("Pinch session skipped: EnablePinch is false");
+            _chat.PrintError("[autopincher] 設定中尚未啟用。");
             return;
         }
         if (_tasks.IsBusy)
         {
             _log.Warning("Pinch session skipped: already busy");
+            _chat.PrintError("[autopincher] 目前正在執行。");
             return;
         }
 
         if (!await Svc.Framework.RunOnFrameworkThread(IsRetainerListReady))
         {
             _log.Warning("Pinch session skipped: RetainerList not open");
+            _chat.PrintError("[autopincher] 請先打開遊戲內的僱員鈴，停在僱員清單，再按自動降價。");
             return;
         }
 
@@ -222,6 +227,7 @@ public sealed class PinchDriver : IDisposable
         _sessionReprices = 0;
         _sessionRowsAttempted = 0;
         ResetSessionState();
+        _chat.Print("[autopincher] 已從 AutoRetainer 按鈕啟動自動降價。");
 
         _cts?.Cancel();
         _cts?.Dispose();

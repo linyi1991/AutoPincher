@@ -64,10 +64,15 @@ public sealed class PinchOverlay : IDisposable
             }
             else
             {
+                bool canRun = _driver.CanRunAllNow();
+                if (!canRun) ImGui.BeginDisabled();
                 if (ImGui.Button("自動降價##autopincher"))
                     _ = Task.Run(() => _driver.RunAllAsync(CancellationToken.None));
+                if (!canRun) ImGui.EndDisabled();
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("處理所有有上架品的僱員，依市場最低價降價。\n執行期間不要操作遊戲。");
+                    ImGui.SetTooltip(canRun
+                        ? "處理所有有上架品的僱員，依市場最低價降價。\n執行期間不要操作遊戲。"
+                        : "請先打開遊戲內的僱員鈴，停在僱員清單，再按自動降價。");
             }
         }
         catch (Exception ex)
