@@ -129,7 +129,6 @@ public sealed class ConfigWindow : Window, IDisposable
         else
         {
             bool canPinch = cfg.EnablePinch && _driver.CanPinchNow();
-            bool canPinchAll = cfg.EnablePinch && _driver.CanRunAllNow();
             if (!canPinch) ImGui.BeginDisabled();
             if (ImGui.Button("立即處理目前僱員"))
                 _ = Task.Run(() => _driver.RunAsync(CancellationToken.None));
@@ -138,12 +137,15 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.SetTooltip("請先開啟僱員的販售清單。");
 
             ImGui.SameLine();
-            if (!canPinchAll) ImGui.BeginDisabled();
             if (ImGui.Button("處理全部僱員##pinchall"))
+            {
+                Plugin.ChatGui.Print("[autopincher] 已點擊處理全部僱員，正在檢查僱員鈴狀態。");
                 _ = Task.Run(() => _driver.RunAllAsync(CancellationToken.None));
-            if (!canPinchAll) ImGui.EndDisabled();
-            if (!_driver.CanRunAllNow() && ImGui.IsItemHovered())
-                ImGui.SetTooltip("請先打開遊戲內的僱員鈴，停在僱員清單。");
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(_driver.CanRunAllNow()
+                    ? "從目前開啟的遊戲僱員鈴清單，逐一處理所有有上架品的僱員。"
+                    : "點擊後會檢查遊戲原生僱員鈴清單。\n若尚未打開僱員鈴，聊天窗會提示你先打開。");
         }
 
         string last = _driver.LastResultText;
