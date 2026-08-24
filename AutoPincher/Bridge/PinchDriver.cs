@@ -734,7 +734,8 @@ public sealed class PinchDriver : IDisposable
             return;
         }
 
-        uint target = result.Competitor > 1 ? result.Competitor - 1 : 1;
+        uint rawTarget = result.Competitor > 1 ? result.Competitor - 1 : 1;
+        uint target = ApplyMaxDropCap(curPrice, rawTarget, out bool dropCapped);
         if (Plugin.Configuration.PinchMinimumTargetPrice > 0 && target < Plugin.Configuration.PinchMinimumTargetPrice)
         {
             _log.Information(
@@ -750,11 +751,32 @@ public sealed class PinchDriver : IDisposable
             Callback.Fire(&addon->AtkUnitBase, true, 1); // cancel (no change)
             return;
         }
-        _log.Information("Pinch: live-undercut {Item} (hq={Hq}) {Old} -> {New} (competitor {Comp})",
-            name, hq, curPrice, target, result.Competitor);
+        if (dropCapped)
+        {
+            _log.Information("Pinch: capped-drop {Item} (hq={Hq}) {Old} -> {New} (raw {Raw}, competitor {Comp})",
+                name, hq, curPrice, target, rawTarget, result.Competitor);
+        }
+        else
+        {
+            _log.Information("Pinch: live-undercut {Item} (hq={Hq}) {Old} -> {New} (competitor {Comp})",
+                name, hq, curPrice, target, result.Competitor);
+        }
         SetAskingPrice(addon, target);
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
+    }
+
+    private static uint ApplyMaxDropCap(uint curPrice, uint target, out bool capped)
+    {
+        capped = false;
+        int maxDrop = Math.Max(0, Plugin.Configuration.PinchMaxDropAmount);
+        if (maxDrop == 0 || curPrice == 0 || target >= curPrice) return target;
+
+        uint lowestAllowed = curPrice > maxDrop ? curPrice - (uint)maxDrop : 1u;
+        if (target >= lowestAllowed) return target;
+
+        capped = true;
+        return lowestAllowed;
     }
 
     private static bool IsSuspiciousLowCompetitor(
@@ -794,15 +816,24 @@ public sealed class PinchDriver : IDisposable
             Callback.Fire(&addon->AtkUnitBase, true, 1); // cancel
             return;
         }
-        if (historyPrice == curPrice)
+        uint target = ApplyMaxDropCap(curPrice, historyPrice, out bool dropCapped);
+        if (target == curPrice)
         {
-            _log.Debug("Pinch: {Item} (hq={Hq}) — already at last-sale price {Price}", name, hq, historyPrice);
+            _log.Debug("Pinch: {Item} (hq={Hq}) — already at capped/history price {Price}", name, hq, target);
             Callback.Fire(&addon->AtkUnitBase, true, 1); // cancel (no change)
             return;
         }
-        _log.Information("Pinch: history-priced {Item} (hq={Hq}) {Old} -> {New} (last sale, no live competitor)",
-            name, hq, curPrice, historyPrice);
-        SetAskingPrice(addon, historyPrice);
+        if (dropCapped)
+        {
+            _log.Information("Pinch: capped history-priced {Item} (hq={Hq}) {Old} -> {New} (raw {Raw}, no live competitor)",
+                name, hq, curPrice, target, historyPrice);
+        }
+        else
+        {
+            _log.Information("Pinch: history-priced {Item} (hq={Hq}) {Old} -> {New} (last sale, no live competitor)",
+                name, hq, curPrice, target);
+        }
+        SetAskingPrice(addon, target);
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
     }

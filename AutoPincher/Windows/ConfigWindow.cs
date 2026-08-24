@@ -102,6 +102,17 @@ public sealed class ConfigWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("自動降價不會改到低於這個價格；0 表示不使用固定最低價。");
 
+        int maxDrop = cfg.PinchMaxDropAmount;
+        if (ImGui.InputInt("單次最大降價差額##maxdrop", ref maxDrop, 10, 100))
+        {
+            cfg.PinchMaxDropAmount = Math.Max(0, maxDrop);
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(
+                "限制每次自動改價最多比你目前價格低多少；0 表示不限制。\n" +
+                "例：你目前 1000、最低競爭價 800、這裡設 100，原本目標 799 會改成 900。");
+
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();

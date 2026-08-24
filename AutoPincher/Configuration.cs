@@ -54,5 +54,11 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public int PinchMinimumTargetPrice { get; set; } = 0;
 
+    /// <summary>
+    /// Optional maximum amount an automatic reprice may reduce the current listing
+    /// by in one pass. 0 disables it.
+    /// </summary>
+    public int PinchMaxDropAmount { get; set; } = 0;
+
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }
