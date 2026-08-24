@@ -171,7 +171,7 @@ public sealed class PinchDriver : IDisposable
         }
 
         // Queued (not awaited here) — report the planned count, not completed writes.
-        var summary = $"{retainerName}: undercutting {candidates} item(s) ({rows.Count} rows)";
+        var summary = $"{retainerName}：準備降價 {candidates} 項（上架 {rows.Count} 筆）";
         Volatile.Write(ref _lastResultText, summary);
         _chat.Print($"[autopincher] {summary}");
     }
@@ -242,7 +242,7 @@ public sealed class PinchDriver : IDisposable
                 // Skip retainers with nothing listed without opening them.
                 if (marketCount <= 0)
                 {
-                    _chat.Print($"[autopincher] Skip {name}: nothing listed");
+                    _chat.Print($"[autopincher] 略過 {name}：沒有上架品");
                     continue;
                 }
 
@@ -261,7 +261,7 @@ public sealed class PinchDriver : IDisposable
                     () => RetainerMarketReader.GetSlotsLive(_log).Where(r => r.Price > 0).ToList());
                 if (rows.Count == 0)
                 {
-                    _chat.Print($"[autopincher] Skip {name}: no listings");
+                    _chat.Print($"[autopincher] 略過 {name}：讀不到上架清單");
                     _tasks.Enqueue(CloseRetainerSellList);
                     _tasks.Enqueue(CloseSelectStringBack);
                     await DrainTasks();
@@ -292,10 +292,10 @@ public sealed class PinchDriver : IDisposable
             TalkSkipper.Unregister();
             AutoRetainerSuppress.Set(false);
 
-            var summary = $"{_sessionRetainersProcessed} retainers, {_sessionReprices} reprices ({_sessionRowsAttempted} rows)";
-            if (wasCancelled) summary += " (cancelled)";
+            var summary = $"{_sessionRetainersProcessed} 位僱員，完成 {_sessionReprices} 筆改價（檢查 {_sessionRowsAttempted} 筆上架）";
+            if (wasCancelled) summary += "（已取消）";
             Volatile.Write(ref _lastResultText, summary);
-            _chat.Print($"[autopincher] Pinch session: {summary}");
+            _chat.Print($"[autopincher] 降價執行結果：{summary}");
         }
     }
 
@@ -555,11 +555,7 @@ public sealed class PinchDriver : IDisposable
             return false;
         }
         var reader = new ReaderContextMenu(addon);
-        bool hasAdjust = reader.Entries.Any(e =>
-            e.Name.Equals("adjust price", StringComparison.CurrentCultureIgnoreCase)
-            || e.Name.Equals("preis ändern", StringComparison.CurrentCultureIgnoreCase)
-            || e.Name.Equals("価格を変更する", StringComparison.CurrentCultureIgnoreCase)
-            || e.Name.Equals("changer le prix", StringComparison.CurrentCultureIgnoreCase));
+        bool hasAdjust = reader.Entries.Any(e => IsAdjustPriceEntry(e.Name));
 
         if (!hasAdjust)
         {
@@ -601,7 +597,7 @@ public sealed class PinchDriver : IDisposable
         if (name.Length != 0 && liveCompare.TryGetValue(key, out uint itemId))
         {
             // This stack's own asking price, not a sibling stack's.
-            uint curPrice = (uint)addon->AskingPrice->Value;
+            uint curPrice = ReadAskingPrice(addon);
             bool? r = LiveCompareStep(addon, name, hq, curPrice, itemId);
             // Decrement the early-exit budget once, when the compare finishes
             // (terminal true), not on the false retries while waiting.
@@ -737,7 +733,7 @@ public sealed class PinchDriver : IDisposable
         }
         _log.Information("Pinch: live-undercut {Item} (hq={Hq}) {Old} -> {New} (competitor {Comp})",
             name, hq, curPrice, target, result.Competitor);
-        addon->AskingPrice->SetValue((int)target);
+        SetAskingPrice(addon, target);
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
     }
@@ -770,9 +766,63 @@ public sealed class PinchDriver : IDisposable
         }
         _log.Information("Pinch: history-priced {Item} (hq={Hq}) {Old} -> {New} (last sale, no live competitor)",
             name, hq, curPrice, historyPrice);
-        addon->AskingPrice->SetValue((int)historyPrice);
+        SetAskingPrice(addon, historyPrice);
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
+    }
+
+    private static bool IsAdjustPriceEntry(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        string text = name.Trim();
+        if (text.Equals("adjust price", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("preis ändern", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("価格を変更する", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("changer le prix", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("調整價格", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("调整价格", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("變更價格", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("变更价格", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("修改價格", StringComparison.CurrentCultureIgnoreCase)
+            || text.Equals("修改价格", StringComparison.CurrentCultureIgnoreCase))
+            return true;
+
+        bool mentionsPrice = text.Contains("價格", StringComparison.CurrentCultureIgnoreCase)
+                             || text.Contains("价格", StringComparison.CurrentCultureIgnoreCase)
+                             || text.Contains("price", StringComparison.CurrentCultureIgnoreCase);
+        bool looksLikeChange = text.Contains("調", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("调", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("改", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("變", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("变", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("change", StringComparison.CurrentCultureIgnoreCase)
+                               || text.Contains("adjust", StringComparison.CurrentCultureIgnoreCase);
+        return mentionsPrice && looksLikeChange;
+    }
+
+    private static unsafe uint ReadAskingPrice(AddonRetainerSell* addon)
+    {
+        try
+        {
+            int price = new AddonMaster.RetainerSell(addon).AskingPrice;
+            if (price > 0) return (uint)price;
+        }
+        catch
+        {
+            // Fall back to the numeric input value if the addon value array is stale.
+        }
+
+        return addon->AskingPrice == null ? 0u : (uint)Math.Max(0, addon->AskingPrice->Value);
+    }
+
+    private static unsafe void SetAskingPrice(AddonRetainerSell* addon, uint price)
+    {
+        var master = new AddonMaster.RetainerSell(addon);
+        master.AskingPrice = (int)price;
+
+        // Keep the visible numeric field in sync on older API13 client structs.
+        if (addon->AskingPrice != null)
+            addon->AskingPrice->SetValue((int)price);
     }
 
     // Item display name from the Item sheet (empty on failure).

@@ -57,17 +57,17 @@ public sealed class PinchOverlay : IDisposable
             ImGui.SameLine();
             if (_driver.IsBusy)
             {
-                if (ImGui.Button("Cancel##autopincher"))
+                if (ImGui.Button("取消##autopincher"))
                     _driver.AbortAll();
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Cancel the AutoPincher session");
+                    ImGui.SetTooltip("取消目前的 AutoPincher 執行");
             }
             else
             {
-                if (ImGui.Button("Auto Pinch##autopincher"))
+                if (ImGui.Button("自動降價##autopincher"))
                     _ = Task.Run(() => _driver.RunAllAsync(CancellationToken.None));
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Undercut every retainer with active listings.\nDo not interact with the game while this runs.");
+                    ImGui.SetTooltip("處理所有有上架品的僱員，依市場最低價降價。\n執行期間不要操作遊戲。");
             }
         }
         catch (Exception ex)

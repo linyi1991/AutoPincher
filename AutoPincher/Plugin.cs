@@ -48,11 +48,11 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the AutoPincher config window",
+            HelpMessage = "開啟 AutoPincher 降價助手設定視窗",
         });
         CommandManager.AddHandler(PinchCommandName, new CommandInfo(OnPinchCommand)
         {
-            HelpMessage = "Undercut the currently-open retainer's listings (requires its sell list open)",
+            HelpMessage = "對目前開啟的僱員販售清單執行降價",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -87,17 +87,17 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (!Configuration.EnablePinch)
         {
-            ChatGui.PrintError("[autopincher] Disabled in config.");
+            ChatGui.PrintError("[autopincher] 設定中尚未啟用。");
             return;
         }
         if (_pinchDriver.IsBusy)
         {
-            ChatGui.PrintError("[autopincher] Already running.");
+            ChatGui.PrintError("[autopincher] 目前正在執行。");
             return;
         }
         if (!_pinchDriver.CanPinchNow())
         {
-            ChatGui.PrintError("[autopincher] Open a retainer's sell list first.");
+            ChatGui.PrintError("[autopincher] 請先開啟僱員的販售清單。");
             return;
         }
         _ = Task.Run(() => _pinchDriver.RunAsync(CancellationToken.None));
