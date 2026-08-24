@@ -69,6 +69,35 @@ public sealed class ConfigWindow : Window, IDisposable
                 "  關閉（預設）：改成歷史成交紀錄裡最近一次的價格。\n" +
                 "  開啟：不更動價格，保留手動拉高價格的機會。");
 
+        bool skipLow = cfg.PinchSkipSuspiciousLowCompetitor;
+        if (ImGui.Checkbox("略過疑似惡意低價", ref skipLow))
+        {
+            cfg.PinchSkipSuspiciousLowCompetitor = skipLow;
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(
+                "當最低競爭價明顯低於最近成交價時不跟價，避免 3000 gil 的市場被 100 gil 釣魚單打到 99。\n" +
+                "沒有最近成交價時，會用你目前上架價當參考。");
+
+        int lowPercent = cfg.PinchSuspiciousLowPercent;
+        if (ImGui.SliderInt("低價判定比例 (%)##lowpercent", ref lowPercent, 10, 90))
+        {
+            cfg.PinchSuspiciousLowPercent = lowPercent;
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("最低競爭價低於參考價格的這個比例時會略過。預設 50%，例如最近成交 3000，低於 1500 就不自動改價。");
+
+        int minPrice = cfg.PinchMinimumTargetPrice;
+        if (ImGui.InputInt("自動改價最低價##minprice", ref minPrice, 100, 1000))
+        {
+            cfg.PinchMinimumTargetPrice = Math.Max(0, minPrice);
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("自動降價不會改到低於這個價格；0 表示不使用固定最低價。");
+
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();

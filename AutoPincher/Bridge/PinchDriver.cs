@@ -724,7 +724,26 @@ public sealed class PinchDriver : IDisposable
             ApplyNoCompetitor(addon, name, hq, curPrice, result.HistoryPrice);
             return;
         }
+
+        if (IsSuspiciousLowCompetitor(curPrice, result, out uint reference, out uint floor))
+        {
+            _log.Information(
+                "Pinch: {Item} (hq={Hq}) — competitor {Comp} is below safety floor {Floor} (reference {Ref}); leaving unchanged",
+                name, hq, result.Competitor, floor, reference);
+            Callback.Fire(&addon->AtkUnitBase, true, 1); // cancel
+            return;
+        }
+
         uint target = result.Competitor > 1 ? result.Competitor - 1 : 1;
+        if (Plugin.Configuration.PinchMinimumTargetPrice > 0 && target < Plugin.Configuration.PinchMinimumTargetPrice)
+        {
+            _log.Information(
+                "Pinch: {Item} (hq={Hq}) — target {Target} is below configured minimum {Min}; leaving unchanged",
+                name, hq, target, Plugin.Configuration.PinchMinimumTargetPrice);
+            Callback.Fire(&addon->AtkUnitBase, true, 1); // cancel
+            return;
+        }
+
         if (target == curPrice)
         {
             _log.Debug("Pinch: {Item} (hq={Hq}) — already at live undercut {Price}", name, hq, target);
@@ -736,6 +755,23 @@ public sealed class PinchDriver : IDisposable
         SetAskingPrice(addon, target);
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
+    }
+
+    private static bool IsSuspiciousLowCompetitor(
+        uint curPrice, CompareResult result, out uint referencePrice, out uint safetyFloor)
+    {
+        referencePrice = 0;
+        safetyFloor = 0;
+
+        if (!Plugin.Configuration.PinchSkipSuspiciousLowCompetitor) return false;
+        if (result.Competitor == 0) return false;
+
+        int percent = Math.Clamp(Plugin.Configuration.PinchSuspiciousLowPercent, 1, 99);
+        referencePrice = result.HistoryPrice > 0 ? result.HistoryPrice : curPrice;
+        if (referencePrice <= 1) return false;
+
+        safetyFloor = Math.Max(1u, (uint)Math.Ceiling(referencePrice * (percent / 100.0)));
+        return result.Competitor < safetyFloor;
     }
 
     // No live competitor for this item. Either skip it (PinchSkipIfNoCompetitor —

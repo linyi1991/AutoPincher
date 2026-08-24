@@ -36,5 +36,23 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public bool PinchSkipIfNoCompetitor { get; set; } = false;
 
+    /// <summary>
+    /// Skip repricing when the cheapest competitor is far below the recent sale
+    /// price (or current asking price if no history arrived). This protects against
+    /// bait listings such as a 3000 gil market suddenly showing one 100 gil listing.
+    /// </summary>
+    public bool PinchSkipSuspiciousLowCompetitor { get; set; } = true;
+
+    /// <summary>
+    /// Competitors below this percent of the reference price are treated as bait.
+    /// Example: 50 means a 100 gil competitor is ignored when recent sales are 3000.
+    /// </summary>
+    public int PinchSuspiciousLowPercent { get; set; } = 50;
+
+    /// <summary>
+    /// Optional absolute floor for automatic repricing. 0 disables it.
+    /// </summary>
+    public int PinchMinimumTargetPrice { get; set; } = 0;
+
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }
