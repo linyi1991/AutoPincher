@@ -33,6 +33,7 @@ namespace AutoPincher.Bridge;
 public sealed class PinchDriver : IDisposable
 {
     public readonly record struct RepriceRecord(DateTime Time, string ItemName, bool Hq, uint OldPrice, uint NewPrice, string Reason);
+    private readonly record struct VentureGuardResult(bool ShouldPause, string RetainerName, long SecondsRemaining);
 
     private readonly IPluginLog _log;
     private readonly IChatGui _chat;
@@ -159,6 +160,9 @@ public sealed class PinchDriver : IDisposable
     /// <summary>Pinch only the currently-open retainer (the /autopinch command).</summary>
     public async Task RunAsync(CancellationToken ct)
     {
+        if (await ShouldPauseForVentureAsync())
+            return;
+
         (ulong retainerCid, string retainerName) = await Svc.Framework.RunOnFrameworkThread(ReadActiveRetainer);
 
         if (retainerCid == 0 || string.IsNullOrEmpty(retainerName))
@@ -229,6 +233,9 @@ public sealed class PinchDriver : IDisposable
             return;
         }
 
+        if (await ShouldPauseForVentureAsync())
+            return;
+
         _sessionRetainersProcessed = 0;
         _sessionReprices = 0;
         _sessionRowsAttempted = 0;
@@ -272,6 +279,13 @@ public sealed class PinchDriver : IDisposable
             foreach (var (cid, name, sortedIdx, marketCount) in snapshot)
             {
                 if (_cts.Token.IsCancellationRequested) break;
+
+                if (await ShouldPauseForVentureAsync())
+                {
+                    wasCancelled = true;
+                    _cts.Cancel();
+                    break;
+                }
 
                 // Skip retainers with nothing listed without opening them.
                 if (marketCount <= 0)
@@ -1000,6 +1014,73 @@ public sealed class PinchDriver : IDisposable
         }
         catch { }
         return set;
+    }
+
+    private async Task<bool> ShouldPauseForVentureAsync()
+    {
+        if (!Plugin.Configuration.PinchPauseNearVentureCompletion)
+            return false;
+
+        int leadMinutes = Math.Clamp(Plugin.Configuration.PinchVentureCompletionLeadMinutes, 1, 60);
+        int leadSeconds = leadMinutes * 60;
+        var guard = await Svc.Framework.RunOnFrameworkThread(() => CheckVentureCompletionGuard(leadSeconds));
+        if (!guard.ShouldPause)
+            return false;
+
+        string remaining = FormatVentureRemaining(guard.SecondsRemaining);
+        string message = $"{guard.RetainerName} 的探險{remaining}，AutoPincher 已暫停；請先回報並重新派遣後再執行降價。";
+        Volatile.Write(ref _lastResultText, message);
+        _log.Information("Pinch paused by venture guard: {Retainer} remaining {Seconds}s", guard.RetainerName, guard.SecondsRemaining);
+        _chat.PrintError($"[autopincher] {message}");
+        return true;
+    }
+
+    private static unsafe VentureGuardResult CheckVentureCompletionGuard(int leadSeconds)
+    {
+        try
+        {
+            var mgr = RetainerManager.Instance();
+            if (mgr == null || !mgr->IsReady)
+                return new(false, string.Empty, 0);
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            string closestName = string.Empty;
+            long closestRemaining = long.MaxValue;
+            int count = (int)mgr->GetRetainerCount();
+            for (int i = 0; i < count; i++)
+            {
+                var entry = mgr->GetRetainerBySortedIndex((uint)i);
+                if (entry == null || entry->RetainerId == 0 || entry->VentureId == 0 || entry->VentureComplete == 0)
+                    continue;
+
+                long remaining = (long)entry->VentureComplete - now;
+                if (remaining <= leadSeconds && remaining < closestRemaining)
+                {
+                    closestRemaining = remaining;
+                    closestName = entry->NameString;
+                }
+            }
+
+            return closestRemaining == long.MaxValue
+                ? new(false, string.Empty, 0)
+                : new(true, closestName, closestRemaining);
+        }
+        catch
+        {
+            return new(false, string.Empty, 0);
+        }
+    }
+
+    private static string FormatVentureRemaining(long secondsRemaining)
+    {
+        if (secondsRemaining <= 0)
+            return "已可回報";
+
+        var span = TimeSpan.FromSeconds(secondsRemaining);
+        if (span.TotalMinutes >= 1)
+            return $"約 {Math.Floor(span.TotalMinutes):0} 分 {span.Seconds} 秒後可回報";
+
+        return $"約 {span.Seconds} 秒後可回報";
     }
 
     public void Dispose()

@@ -113,6 +113,28 @@ public sealed class ConfigWindow : Window, IDisposable
                 "限制每次自動改價最多比你目前價格低多少；0 表示不限制。\n" +
                 "例：你目前 1000、最低競爭價 800、這裡設 100，原本目標 799 會改成 900。");
 
+        bool pauseNearVenture = cfg.PinchPauseNearVentureCompletion;
+        if (ImGui.Checkbox("探險快完成時暫停", ref pauseNearVenture))
+        {
+            cfg.PinchPauseNearVentureCompletion = pauseNearVenture;
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("執行前若有僱員探險已完成或即將完成，AutoPincher 會先停止並在聊天窗告知，避免回報視窗打斷降價流程。");
+
+        int ventureLead = Math.Clamp(cfg.PinchVentureCompletionLeadMinutes, 1, 10);
+        bool changedVentureLead = ImGui.SliderInt("探險完成保護時間 (分)##venturelead", ref ventureLead, 1, 10);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(80);
+        changedVentureLead |= ImGui.InputInt("##ventureleadinput", ref ventureLead, 1, 1);
+        if (changedVentureLead)
+        {
+            cfg.PinchVentureCompletionLeadMinutes = Math.Clamp(ventureLead, 1, 60);
+            cfg.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("預設 2 分鐘。若任何僱員探險剩餘時間小於等於此值，AutoPincher 會暫停，讓你先回報並重新派遣。");
+
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();

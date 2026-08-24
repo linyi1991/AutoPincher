@@ -60,5 +60,16 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public int PinchMaxDropAmount { get; set; } = 0;
 
+    /// <summary>
+    /// Pause AutoPincher when a retainer venture is already complete or will
+    /// complete soon, so venture result dialogs do not interrupt price editing.
+    /// </summary>
+    public bool PinchPauseNearVentureCompletion { get; set; } = true;
+
+    /// <summary>
+    /// Lead time, in minutes, for the retainer venture completion guard.
+    /// </summary>
+    public int PinchVentureCompletionLeadMinutes { get; set; } = 2;
+
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }
