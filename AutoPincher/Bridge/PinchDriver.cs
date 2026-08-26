@@ -33,6 +33,7 @@ namespace AutoPincher.Bridge;
 public sealed class PinchDriver : IDisposable
 {
     public readonly record struct RepriceRecord(DateTime Time, string ItemName, bool Hq, uint OldPrice, uint NewPrice, string Reason);
+    public readonly record struct ListingRecord(DateTime Time, string RetainerName, string ItemName, bool Hq, uint Quantity, uint UnitPrice);
     private readonly record struct VentureGuardResult(bool ShouldPause, string RetainerName, long SecondsRemaining);
 
     private readonly IPluginLog _log;
@@ -41,7 +42,10 @@ public sealed class PinchDriver : IDisposable
     private readonly TaskManager _tasks;
     private readonly object _recentRepricesLock = new();
     private readonly List<RepriceRecord> _recentReprices = [];
+    private readonly object _listingSnapshotLock = new();
+    private readonly List<ListingRecord> _listingSnapshot = [];
     private string _lastResultText = "";
+    private string _activeListingRetainerName = "";
 
     private CancellationTokenSource? _cts;
     private int _sessionRetainersProcessed;
@@ -99,11 +103,77 @@ public sealed class PinchDriver : IDisposable
         }
     }
 
+    public ListingRecord[] ListingSnapshot
+    {
+        get
+        {
+            lock (_listingSnapshotLock)
+            {
+                return _listingSnapshot.ToArray();
+            }
+        }
+    }
+
     public void ClearRecentReprices()
     {
         lock (_recentRepricesLock)
         {
             _recentReprices.Clear();
+        }
+    }
+
+    public void ClearListingSnapshot()
+    {
+        lock (_listingSnapshotLock)
+        {
+            _listingSnapshot.Clear();
+        }
+    }
+
+    private void ReplaceRetainerListings(string retainerName, IEnumerable<RetainerMarketRow> rows)
+    {
+        var now = DateTime.Now;
+        var records = rows
+            .Select(row => new ListingRecord(
+                now,
+                retainerName,
+                NormalizeItemName(ResolveItemName(row.ItemId)),
+                row.Hq,
+                row.Qty,
+                row.Price))
+            .Where(row => !string.IsNullOrEmpty(row.ItemName))
+            .ToList();
+
+        lock (_listingSnapshotLock)
+        {
+            _listingSnapshot.RemoveAll(row => row.RetainerName == retainerName);
+            _listingSnapshot.AddRange(records);
+        }
+    }
+
+    private void UpdateListingPrice(string itemName, bool hq, uint oldPrice, uint newPrice)
+    {
+        var retainerName = _activeListingRetainerName;
+        if (string.IsNullOrEmpty(retainerName)) return;
+
+        lock (_listingSnapshotLock)
+        {
+            var index = _listingSnapshot.FindIndex(row =>
+                row.RetainerName == retainerName
+                && row.ItemName == itemName
+                && row.Hq == hq
+                && row.UnitPrice == oldPrice);
+            if (index < 0)
+            {
+                index = _listingSnapshot.FindIndex(row =>
+                    row.RetainerName == retainerName
+                    && row.ItemName == itemName
+                    && row.Hq == hq);
+            }
+            if (index < 0) return;
+
+            var row = _listingSnapshot[index];
+            _listingSnapshot[index] = row with { Time = DateTime.Now, UnitPrice = newPrice };
         }
     }
 
@@ -184,6 +254,7 @@ public sealed class PinchDriver : IDisposable
         // session). RetainerSellList is open (CanPinchNow gate above).
         List<RetainerMarketRow> rows = await Svc.Framework.RunOnFrameworkThread(
             () => RetainerMarketReader.GetSlotsLive(_log).Where(r => r.Price > 0).ToList());
+        ReplaceRetainerListings(retainerName, rows);
 
         if (rows.Count == 0)
         {
@@ -194,6 +265,7 @@ public sealed class PinchDriver : IDisposable
         int candidates;
         try
         {
+            _activeListingRetainerName = retainerName;
             EnqueuePinchTasks(rows, closeOuterList: true, out candidates);
         }
         catch (Exception ex)
@@ -240,6 +312,7 @@ public sealed class PinchDriver : IDisposable
         _sessionReprices = 0;
         _sessionRowsAttempted = 0;
         ResetSessionState();
+        ClearListingSnapshot();
         _chat.Print("[autopincher] 已從 AutoRetainer 按鈕啟動自動降價。");
 
         _cts?.Cancel();
@@ -307,6 +380,7 @@ public sealed class PinchDriver : IDisposable
                 // retainer's RetainerSellList is open.
                 var rows = await Svc.Framework.RunOnFrameworkThread(
                     () => RetainerMarketReader.GetSlotsLive(_log).Where(r => r.Price > 0).ToList());
+                ReplaceRetainerListings(name, rows);
                 if (rows.Count == 0)
                 {
                     _chat.Print($"[autopincher] 略過 {name}：讀不到上架清單");
@@ -319,10 +393,12 @@ public sealed class PinchDriver : IDisposable
                 // Phase 3: reprice via live compare, then close back to RetainerList.
                 // Actual writes are counted by ApplyCompareResult into _sessionReprices;
                 // the out-param here is the planned candidate count, unused per-retainer.
+                _activeListingRetainerName = name;
                 EnqueuePinchTasks(rows, closeOuterList: false, out _);
                 _tasks.Enqueue(CloseRetainerSellList);
                 _tasks.Enqueue(CloseSelectStringBack);
                 await DrainTasks();
+                _activeListingRetainerName = "";
 
                 _sessionRetainersProcessed++;
                 _sessionRowsAttempted += rows.Count;
@@ -337,6 +413,7 @@ public sealed class PinchDriver : IDisposable
         {
             // Cleanup direct (not via _tasks) because Abort() would discard
             // enqueued cleanup. Both helpers are idempotent.
+            _activeListingRetainerName = "";
             TalkSkipper.Unregister();
             AutoRetainerSuppress.Set(false);
 
@@ -810,6 +887,7 @@ public sealed class PinchDriver : IDisposable
                 name, hq, curPrice, target, result.Competitor);
         }
         SetAskingPrice(addon, target);
+        UpdateListingPrice(name, hq, curPrice, target);
         RecordReprice(name, hq, curPrice, target, dropCapped ? "限制差額" : "跟最低價");
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;
@@ -893,6 +971,7 @@ public sealed class PinchDriver : IDisposable
                 name, hq, curPrice, target);
         }
         SetAskingPrice(addon, target);
+        UpdateListingPrice(name, hq, curPrice, target);
         RecordReprice(name, hq, curPrice, target, dropCapped ? "限制差額/成交價" : "最近成交價");
         Callback.Fire(&addon->AtkUnitBase, true, 0); // confirm
         _sessionReprices++;

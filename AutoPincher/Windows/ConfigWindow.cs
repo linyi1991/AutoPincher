@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +16,7 @@ public sealed class ConfigWindow : Window, IDisposable
     public ConfigWindow(PinchDriver driver) : base("AutoPincher 降價助手###autopincher-config")
     {
         _driver = driver;
-        Size = new Vector2(420, 0);
+        Size = new Vector2(680, 620);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -177,6 +178,8 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), $"上次執行：{last}");
         }
 
+        DrawListingSnapshot();
+
         var records = _driver.RecentReprices;
         ImGui.Spacing();
         ImGui.Separator();
@@ -220,6 +223,85 @@ public sealed class ConfigWindow : Window, IDisposable
 
             ImGui.EndTable();
         }
+    }
+
+    private void DrawListingSnapshot()
+    {
+        var listings = _driver.ListingSnapshot
+            .OrderBy(row => row.RetainerName)
+            .ThenBy(row => row.ItemName)
+            .ThenByDescending(row => row.Hq)
+            .ToArray();
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        var totalQty = listings.Aggregate(0UL, (sum, row) => sum + row.Quantity);
+        var totalValue = listings.Aggregate(0UL, (sum, row) => sum + (ulong)row.Quantity * row.UnitPrice);
+        ImGui.TextUnformatted($"目前上架總覽（{listings.Length} 筆，{totalQty:N0} 個，估值 {totalValue:N0} gil）");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("複製 TSV##copy-listings"))
+            ImGui.SetClipboardText(ToTsv(listings));
+        ImGui.SameLine();
+        if (ImGui.SmallButton("清除##clear-listings"))
+            _driver.ClearListingSnapshot();
+
+        if (listings.Length == 0)
+        {
+            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "尚無上架快照。執行「處理全部僱員」後會更新。");
+            return;
+        }
+
+        if (ImGui.BeginTable("##listing-snapshot-table", 6,
+            ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingStretchProp,
+            new Vector2(0, 220)))
+        {
+            ImGui.TableSetupColumn("僱員", ImGuiTableColumnFlags.WidthFixed, 82);
+            ImGui.TableSetupColumn("商品");
+            ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 34);
+            ImGui.TableSetupColumn("數量", ImGuiTableColumnFlags.WidthFixed, 58);
+            ImGui.TableSetupColumn("單價", ImGuiTableColumnFlags.WidthFixed, 82);
+            ImGui.TableSetupColumn("小計", ImGuiTableColumnFlags.WidthFixed, 90);
+            ImGui.TableHeadersRow();
+
+            foreach (var row in listings)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(row.RetainerName);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(row.ItemName);
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(row.Hq ? "HQ" : "");
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(row.Quantity.ToString("N0"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(row.UnitPrice.ToString("N0"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(((ulong)row.Quantity * row.UnitPrice).ToString("N0"));
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private static string ToTsv(PinchDriver.ListingRecord[] listings)
+    {
+        static string Clean(string value)
+            => value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+
+        var lines = listings.Select(row =>
+            string.Join('\t',
+                row.Time.ToString("yyyy-MM-dd HH:mm:ss"),
+                Clean(row.RetainerName),
+                Clean(row.ItemName),
+                row.Hq ? "HQ" : "",
+                row.Quantity.ToString(),
+                row.UnitPrice.ToString(),
+                ((ulong)row.Quantity * row.UnitPrice).ToString()));
+
+        return "Time\tRetainer\tItem\tHQ\tQuantity\tUnitPrice\tTotal\n" + string.Join('\n', lines);
     }
 
     public void Dispose() { }
