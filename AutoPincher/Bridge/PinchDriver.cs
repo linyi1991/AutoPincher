@@ -1028,7 +1028,10 @@ public sealed class PinchDriver : IDisposable
             return false;
 
         string remaining = FormatVentureRemaining(guard.SecondsRemaining);
-        string message = $"{guard.RetainerName} 的探險{remaining}，AutoPincher 已暫停；請先回報並重新派遣後再執行降價。";
+        AutoRetainerSuppress.Set(false);
+        AutoRetainerSuppress.RequestAutoRetainer();
+
+        string message = $"{guard.RetainerName} 的探險{remaining}，AutoPincher 已暫停；已交回 AutoRetainer 先回報並重新派遣。";
         Volatile.Write(ref _lastResultText, message);
         _log.Information("Pinch paused by venture guard: {Retainer} remaining {Seconds}s", guard.RetainerName, guard.SecondsRemaining);
         _chat.PrintError($"[autopincher] {message}");

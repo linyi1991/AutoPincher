@@ -36,4 +36,19 @@ internal static class AutoRetainerSuppress
             return false;
         }
     }
+
+    public static void RequestAutoRetainer()
+    {
+        try
+        {
+            Svc.PluginInterface
+                .GetIpcSubscriber<object>("AutoRetainer.RequestAutoRetainer")
+                .InvokeAction();
+        }
+        catch (IpcNotReadyError) { /* AR not loaded */ }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "AutoRetainerSuppress.RequestAutoRetainer failed");
+        }
+    }
 }
