@@ -1214,14 +1214,74 @@ public sealed class PinchDriver : IDisposable
             return false;
 
         string remaining = FormatVentureRemaining(guard.SecondsRemaining);
-        AutoRetainerSuppress.Set(false);
-        AutoRetainerSuppress.RequestAutoRetainer();
+        await PrepareRetainerListForAutoRetainerHandoffAsync();
 
         string message = $"{guard.RetainerName} 的探險{remaining}，AutoPincher 已暫停；已交回 AutoRetainer 先回報並重新派遣。";
         Volatile.Write(ref _lastResultText, message);
         _log.Information("Pinch paused by venture guard: {Retainer} remaining {Seconds}s", guard.RetainerName, guard.SecondsRemaining);
         _chat.PrintError($"[autopincher] {message}");
         return true;
+    }
+
+    private async Task PrepareRetainerListForAutoRetainerHandoffAsync()
+    {
+        var deadline = Environment.TickCount64 + 10000;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (await Svc.Framework.RunOnFrameworkThread(CloseTransientRetainerUiForHandoff))
+                break;
+
+            await Task.Delay(250, CancellationToken.None);
+        }
+
+        AutoRetainerSuppress.Set(false);
+        AutoRetainerSuppress.RequestAutoRetainer();
+    }
+
+    private static unsafe bool CloseTransientRetainerUiForHandoff()
+    {
+        var waiting = false;
+
+        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("ItemSearchResult", out var itemSearch) && itemSearch->IsVisible)
+        {
+            itemSearch->Close(true);
+            waiting = true;
+        }
+
+        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("RetainerSell", out var retainerSell) && retainerSell->IsVisible)
+        {
+            retainerSell->Close(true);
+            waiting = true;
+        }
+
+        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("ContextMenu", out var contextMenu) && contextMenu->IsVisible)
+        {
+            contextMenu->Close(true);
+            waiting = true;
+        }
+
+        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("RetainerSellList", out var retainerSellList) && retainerSellList->IsVisible)
+        {
+            retainerSellList->Close(true);
+            waiting = true;
+        }
+
+        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("SelectString", out var selectString)
+            && GenericHelpers.IsAddonReady(selectString))
+        {
+            var quitText = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>()
+                .GetRow(2383).Text.ToDalamudString().GetText();
+            var ss = new AddonMaster.SelectString(selectString);
+            for (int i = 0; i < ss.Entries.Length; i++)
+            {
+                if (ss.Entries[i].Text != quitText) continue;
+                ss.Entries[i].Select();
+                waiting = true;
+                break;
+            }
+        }
+
+        return !waiting && IsRetainerListReady();
     }
 
     private static unsafe VentureGuardResult CheckVentureCompletionGuard(int leadSeconds)
