@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string CommandName = "/autopincher";
     private const string PinchCommandName = "/autopinch";
     private const string PinchAllCommandName = "/autopinchall";
+    private const string ScanAllCommandName = "/autopinchscan";
 
     public static Configuration Configuration { get; private set; } = null!;
 
@@ -59,6 +60,10 @@ public sealed class Plugin : IDalamudPlugin
         {
             HelpMessage = "從目前開啟的僱員清單處理所有有上架品的僱員",
         });
+        CommandManager.AddHandler(ScanAllCommandName, new CommandInfo(OnScanAllCommand)
+        {
+            HelpMessage = "從目前開啟的僱員清單掃描所有僱員上架品，不改價",
+        });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
@@ -82,6 +87,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(PinchCommandName);
         CommandManager.RemoveHandler(PinchAllCommandName);
+        CommandManager.RemoveHandler(ScanAllCommandName);
 
         _pinchDriver.Dispose();
         _mbListener.Dispose();
@@ -128,6 +134,21 @@ public sealed class Plugin : IDalamudPlugin
         }
         ChatGui.Print("[autopincher] 已啟動全部僱員自動降價。");
         _ = Task.Run(() => _pinchDriver.RunAllAsync(CancellationToken.None));
+    }
+
+    private void OnScanAllCommand(string command, string args)
+    {
+        if (_pinchDriver.IsBusy)
+        {
+            ChatGui.PrintError("[autopincher] 目前正在執行。");
+            return;
+        }
+        if (!_pinchDriver.CanRunAllNow())
+        {
+            ChatGui.PrintError("[autopincher] 請先打開遊戲內的僱員鈴，停在僱員清單，再輸入 /autopinchscan。");
+            return;
+        }
+        _ = Task.Run(() => _pinchDriver.ScanAllAsync(CancellationToken.None));
     }
 
     public void ToggleConfigUi() => ConfigWindow.Toggle();

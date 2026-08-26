@@ -169,6 +169,14 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.SetTooltip(_driver.CanRunAllNow()
                     ? "從目前開啟的遊戲僱員鈴清單，逐一處理所有有上架品的僱員。"
                     : "點擊後會檢查遊戲原生僱員鈴清單。\n若尚未打開僱員鈴，聊天窗會提示你先打開。");
+
+            ImGui.SameLine();
+            if (ImGui.Button("掃描全部僱員##scanall"))
+                _ = Task.Run(() => _driver.ScanAllAsync(CancellationToken.None));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(_driver.CanRunAllNow()
+                    ? "只掃描所有僱員目前上架品並更新總覽，不查市場、不改價。"
+                    : "請先打開遊戲原生僱員鈴清單。");
         }
 
         string last = _driver.LastResultText;

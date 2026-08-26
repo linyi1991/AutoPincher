@@ -424,6 +424,113 @@ public sealed class PinchDriver : IDisposable
         }
     }
 
+    /// <summary>Scan every retainer with active listings and refresh the listing snapshot without changing prices.</summary>
+    public async Task ScanAllAsync(CancellationToken ct)
+    {
+        if (_tasks.IsBusy)
+        {
+            _log.Warning("Listing scan skipped: already busy");
+            _chat.PrintError("[autopincher] 目前正在執行。");
+            return;
+        }
+
+        if (!await Svc.Framework.RunOnFrameworkThread(IsRetainerListReady))
+        {
+            _log.Warning("Listing scan skipped: RetainerList not open");
+            _chat.PrintError("[autopincher] 請先打開遊戲內的僱員鈴，停在僱員清單，再掃描。");
+            return;
+        }
+
+        if (await ShouldPauseForVentureAsync())
+            return;
+
+        ResetSessionState();
+        ClearListingSnapshot();
+        _chat.Print("[autopincher] 已啟動全部僱員上架掃描。");
+
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var scannedRetainers = 0;
+        var scannedRows = 0;
+        var wasCancelled = false;
+        try
+        {
+            AutoRetainerSuppress.Set(true);
+            TalkSkipper.Register();
+
+            var snapshot = await Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                var list = new List<(string name, int index, int marketCount)>();
+                unsafe
+                {
+                    var mgr = RetainerManager.Instance();
+                    if (mgr == null) return list;
+                    int count = (int)mgr->GetRetainerCount();
+                    for (int i = 0; i < count; i++)
+                    {
+                        var entry = mgr->GetRetainerBySortedIndex((uint)i);
+                        if (entry == null) continue;
+                        list.Add((entry->NameString, i, entry->MarketItemCount));
+                    }
+                }
+                return list;
+            });
+
+            foreach (var (name, sortedIdx, marketCount) in snapshot)
+            {
+                if (_cts.Token.IsCancellationRequested) break;
+
+                if (await ShouldPauseForVentureAsync())
+                {
+                    wasCancelled = true;
+                    _cts.Cancel();
+                    break;
+                }
+
+                if (marketCount <= 0)
+                {
+                    ReplaceRetainerListings(name, []);
+                    _chat.Print($"[autopincher] 掃描略過 {name}：沒有上架品");
+                    continue;
+                }
+
+                _tasks.Enqueue(() => OpenRetainerRow(sortedIdx));
+                _tasks.Enqueue(ClickSellItems);
+                _tasks.Enqueue(() => WaitForAddon("RetainerSellList"));
+                await DrainTasks();
+                if (_cts.Token.IsCancellationRequested) break;
+
+                var rows = await Svc.Framework.RunOnFrameworkThread(
+                    () => RetainerMarketReader.GetSlotsLive(_log).Where(r => r.Price > 0).ToList());
+                ReplaceRetainerListings(name, rows);
+                scannedRetainers++;
+                scannedRows += rows.Count;
+                _chat.Print($"[autopincher] 已掃描 {name}：{rows.Count} 筆上架");
+
+                _tasks.Enqueue(CloseRetainerSellList);
+                _tasks.Enqueue(CloseSelectStringBack);
+                await DrainTasks();
+            }
+
+            _tasks.Enqueue(() => { TalkSkipper.Unregister(); return (bool?)true; });
+            _tasks.Enqueue(() => { AutoRetainerSuppress.Set(false); return (bool?)true; });
+            await DrainTasks();
+            wasCancelled = wasCancelled || _cts.Token.IsCancellationRequested;
+        }
+        finally
+        {
+            TalkSkipper.Unregister();
+            AutoRetainerSuppress.Set(false);
+
+            var summary = $"掃描 {scannedRetainers} 位僱員，取得 {scannedRows} 筆上架";
+            if (wasCancelled) summary += "（已取消）";
+            Volatile.Write(ref _lastResultText, summary);
+            _chat.Print($"[autopincher] 上架掃描結果：{summary}");
+        }
+    }
+
     public void AbortAll()
     {
         _cts?.Cancel();
