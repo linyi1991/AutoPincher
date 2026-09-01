@@ -136,10 +136,6 @@ public sealed class ConfigWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("預設 2 分鐘。若任何僱員探險剩餘時間小於等於此值，AutoPincher 會暫停，讓你先回報並重新派遣。");
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
         ImGui.TextWrapped(
             "先開啟某個僱員的販售清單，再按下方按鈕；或在 AutoRetainer 的僱員列表控制區使用「自動降價」按鈕，一次跑完全部僱員。");
         ImGui.Spacing();
@@ -177,6 +173,7 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.SetTooltip(_driver.CanRunAllNow()
                     ? "只掃描所有僱員目前上架品並更新總覽，不查市場、不改價。"
                     : "請先打開遊戲原生僱員鈴清單。");
+
         }
 
         string last = _driver.LastResultText;
